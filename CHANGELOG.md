@@ -1,5 +1,15 @@
 # Mpro - Changelog
 
+## v3.8.4 - HCR: throughput e latência do kernel
+
+### Otimizações
+- A abertura do HCR agora instala `/etc/sysctl.d/99-azpro-hcr.conf` com janelas TCP adaptativas de até 16 MiB, `tcp_slow_start_after_idle=0`, MTU probing e keep-alive persistente.
+- Quando a VPS oferece BBR, o Azpro seleciona `net.ipv4.tcp_congestion_control=bbr` para melhorar throughput em redes com perda/RTT alto.
+- Unit HCR passa a usar `LimitNOFILE=65535` e `LimitNPROC=65535`.
+
+### Observação
+- BBR e janelas maiores melhoram o uso da rota, mas não reduzem o ping físico nem corrigem uma rota ruim da operadora. O ganho real depende do kernel, da VPS e do cliente HCR.
+
 ## v3.8.3 - Throughput xHTTP
 
 ### Otimizações
