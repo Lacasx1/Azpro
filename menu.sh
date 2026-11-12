@@ -585,6 +585,8 @@ EOF
 
     CC=$(sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null || true)
     if grep -qw bbr <<<"$CC"; then
+        # O fq fornece pacing justo recomendado para o controle de congestionamento BBR.
+        printf '%s\n' 'net.core.default_qdisc = fq' >> "$SYSCTL_FILE"
         printf '%s\n' 'net.ipv4.tcp_congestion_control = bbr' >> "$SYSCTL_FILE"
     fi
     sysctl --system >/dev/null 2>&1 || sysctl -p "$SYSCTL_FILE" >/dev/null 2>&1 || true
