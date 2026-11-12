@@ -1,5 +1,12 @@
 # Mpro - Changelog
 
+## v3.8.3 - Throughput xHTTP
+
+### Otimizações
+- Caminhos xHTTP raw, TLS e integrado deixaram de usar `tokio::io::copy` com buffer padrão pequeno e passaram a usar o relay otimizado de 128 KiB por direção.
+- A mesma melhoria foi aplicada aos binários `mpro`, `mpro-xhttp` e `mpro-integrated`, evitando que o resultado dependesse de qual modo do menu foi utilizado.
+- Mantidos `TCP_NODELAY`, buffers de socket e TCP keep-alive nas conexões cliente/backend.
+
 ## v3.8.2 - Conexões persistentes e keep-alive
 
 ### Corrigido
