@@ -538,13 +538,21 @@ hcr_ensure_binary() {
 
 # Descobre o formato de argumentos aceito pelo binário instalado.
 hcr_exec_args() {
-    local PORT="$1" BINARY="$2" HELP=""
+    local PORT="$1" BINARY="$2" HELP="" OPTIONAL_ARGS=""
 
     HELP=$(timeout 5 "$BINARY" -h 2>&1 </dev/null) || true
+    if grep -q -- "-download-poll-timeout" <<<"$HELP"; then
+        # Evita que o downlink fique silencioso por 25s em redes móveis/NAT.
+        OPTIONAL_ARGS+=" -download-poll-timeout 5s"
+    fi
+    if grep -q -- "-max-download-frame" <<<"$HELP"; then
+        # Frame menor atravessa melhor proxies que pausam respostas grandes.
+        OPTIONAL_ARGS+=" -max-download-frame 16384"
+    fi
     if grep -q -- "-listen" <<<"$HELP"; then
-        printf '%s' "-listen :${PORT} -target ${HCR_SSH_TARGET} -transport plain"
+        printf '%s' "-listen :${PORT} -target ${HCR_SSH_TARGET} -transport plain${OPTIONAL_ARGS}"
     else
-        printf '%s' "--port ${PORT} --transport plain"
+        printf '%s' "--port ${PORT} --transport plain${OPTIONAL_ARGS}"
     fi
 }
 
@@ -625,6 +633,28 @@ WantedBy=multi-user.target
 EOF
 }
 
+hcr_refresh_managed_unit() {
+    local BINARY="$1" SERVICE_FILE="${SYSTEMD_DIR}/${HCR_SERVICE}"
+    local ARGS="" BACKUP=""
+
+    [[ -f "$SERVICE_FILE" ]] || return 0
+    # Não toca em units criadas fora do Azpro.
+    grep -Eq "^[[:space:]]*ExecStart=${BYPASS_DIR}/hcr-server[[:space:]]" "$SERVICE_FILE" || return 0
+    ARGS=$(hcr_exec_args "$HCR_PORT" "$BINARY")
+    BACKUP="${SERVICE_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+    cp -a -- "$SERVICE_FILE" "$BACKUP" || return 1
+    if ! sed -i -E "s|^[[:space:]]*ExecStart=.*$|ExecStart=${BINARY} ${ARGS}|" "$SERVICE_FILE"; then
+        cp -a -- "$BACKUP" "$SERVICE_FILE"
+        return 1
+    fi
+    systemctl daemon-reload || {
+        cp -a -- "$BACKUP" "$SERVICE_FILE"
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        return 1
+    }
+    return 0
+}
+
 hcr_manage_binary() {
     local BINARY="" ANSWER=""
 
@@ -658,6 +688,13 @@ hcr_manage_binary() {
     if ! hcr_install_binary; then
         read -r -p "Enter para continuar..." _
         return 1
+    fi
+    BINARY=$(hcr_binary_path) || BINARY=""
+    if [[ -z "$BINARY" ]]; then
+        echo -e "${YELLOW}Binário instalado, mas não foi possível localizá-lo para atualizar a unit.${NC}"
+    fi
+    if [[ -n "$BINARY" ]] && ! hcr_refresh_managed_unit "$BINARY"; then
+        echo -e "${YELLOW}Unit HCR preservada; não foi possível atualizar os argumentos anti-pausa.${NC}"
     fi
     if systemctl is-active --quiet "$HCR_SERVICE" 2>/dev/null; then
         if systemctl restart "$HCR_SERVICE" >/dev/null 2>&1 && hcr_wait_listening "$HCR_PORT"; then
