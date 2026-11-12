@@ -59,7 +59,7 @@ pub async fn handle_tls(socket: TcpStream) -> Result<()> {
 /// HCR: termina TLS no Azpro e encaminha o SSH já descriptografado ao sshd.
 /// O cliente pode aceitar o certificado autoassinado quando usa "Allow insecure".
 pub async fn handle_hcr(socket: TcpStream) -> Result<()> {
-    crate::relay::tune_tcp_stream(&socket);
+    socket.set_nodelay(true)?;
     let config = build_server_config(HCR_CERT_PATH, HCR_KEY_PATH)?;
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let mut tls_stream = timeout(HCR_HANDSHAKE_TIMEOUT, acceptor.accept(socket))
@@ -71,9 +71,9 @@ pub async fn handle_hcr(socket: TcpStream) -> Result<()> {
     )
     .await
     .map_err(|_| anyhow::anyhow!("timeout conectando ao sshd em 127.0.0.1:22"))??;
-    crate::relay::tune_tcp_stream(&ssh);
+    ssh.set_nodelay(true)?;
     info!("HCR TLS terminado -> SSH:22 conectado");
-    crate::relay::copy_bidirectional(&mut tls_stream, &mut ssh).await?;
+    tokio::io::copy_bidirectional(&mut tls_stream, &mut ssh).await?;
     Ok(())
 }
 

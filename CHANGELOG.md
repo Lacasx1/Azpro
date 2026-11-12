@@ -1,14 +1,5 @@
 # Mpro - Changelog
 
-## v3.8.5 - HCR: buffer do relay e pacing BBR
-
-### Otimizações
-- HCR TLS no modo multiprotocolo agora usa o relay compartilhado com buffers de 128 KiB por direção e os ajustes TCP do Azpro, em vez do buffer padrão pequeno do Tokio.
-- Quando BBR estiver disponível, o perfil HCR define `fq` como qdisc padrão do host; isso não força a troca do qdisc já ativo na interface, que pode continuar sob controle da VPS. O HCR plain da porta 8880 continua usando o binário oficial e se beneficia apenas dos ajustes do kernel.
-
-### Observação
-- Essas alterações podem melhorar o throughput e reduzir fila criada no servidor, mas não reduzem o RTT físico da rede móvel; o resultado depende do kernel, da VPS, do cliente e da rota da operadora.
-
 ## v3.8.4 - HCR: throughput e latência do kernel
 
 ### Otimizações
