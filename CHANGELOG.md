@@ -1,17 +1,6 @@
 # Mpro - Changelog
 
-## v3.8.6 - HCR plain: reduzir pausas do downlink
-
-### Corrigido
-- O menu detecta as opções disponíveis no `hcr-server` e, nas versões recentes, configura `download-poll-timeout=5s` e `max-download-frame=16384`.
-- Isso reduz períodos longos sem dados no downlink e usa frames menores, mais tolerantes a proxies, NATs e redes móveis que interrompem respostas maiores.
-- Binários antigos continuam funcionando com os argumentos básicos, sem receber flags que não reconhecem.
-- Ao usar a opção de instalar/atualizar o HCR, a unit criada pelo Azpro é atualizada e reiniciada com esses argumentos; units externas não são alteradas.
-
-### Observação
-- Esta correção atua no HCR plain da porta 8880. Ela não corrige perda de sinal, rota ruim da operadora ou saturação da VPS.
-
-## v3.8.5 - HCR: buffer do relay e pacing BBR/FQ
+## v3.8.5 - HCR: buffer do relay e pacing BBR
 
 ### Otimizações
 - HCR TLS no modo multiprotocolo agora usa o relay compartilhado com buffers de 128 KiB por direção e os ajustes TCP do Azpro, em vez do buffer padrão pequeno do Tokio.
