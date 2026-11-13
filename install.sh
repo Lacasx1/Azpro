@@ -9,6 +9,8 @@ TOTAL_STEPS=7
 CURRENT_STEP=0
 BUILD_DIR="/tmp/Mpro_build"
 CARGO_TARGET_DIR="/var/cache/azpro/cargo-target"
+MIN_BUILD_SPACE_KB=$((2 * 1024 * 1024))
+LOW_BUILD_SPACE_KB=$((3 * 1024 * 1024))
 CPU_COUNT="$(nproc 2>/dev/null || echo 2)"
 MEMORY_MB="$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 2048)"
 if [ "$MEMORY_MB" -lt 2500 ]; then
@@ -40,6 +42,31 @@ log_success() {
 log_error() {
     echo -e "${RED}${BOLD}[ERRO]${NC} $1"
     exit 1
+}
+
+free_space_kb() {
+    df -Pk "$1" 2>/dev/null | awk 'NR == 2 {print $4}'
+}
+
+prepare_build_cache() {
+    local FREE_KB=""
+
+    mkdir -p "$CARGO_TARGET_DIR" || log_error "Falha ao criar o diretório de cache do Cargo."
+    FREE_KB="$(free_space_kb "$CARGO_TARGET_DIR")"
+    [[ "$FREE_KB" =~ ^[0-9]+$ ]] || log_error "Não foi possível verificar o espaço livre do disco."
+
+    # Um target interrompido pode ocupar vários GB e não precisa ser preservado.
+    if [ "$FREE_KB" -lt "$LOW_BUILD_SPACE_KB" ]; then
+        log_info "Pouco espaço livre; removendo cache de compilação incompleto..."
+        rm -rf -- "$CARGO_TARGET_DIR" || log_error "Não foi possível limpar o cache do Cargo."
+        mkdir -p "$CARGO_TARGET_DIR" || log_error "Falha ao recriar o cache do Cargo."
+        FREE_KB="$(free_space_kb "$CARGO_TARGET_DIR")"
+    fi
+
+    if ! [[ "$FREE_KB" =~ ^[0-9]+$ ]] || [ "$FREE_KB" -lt "$MIN_BUILD_SPACE_KB" ]; then
+        log_error "Espaço insuficiente para compilar. São necessários pelo menos 2 GB livres; libere espaço e tente novamente."
+    fi
+    log_info "Espaço livre para compilação: $((FREE_KB / 1024)) MB"
 }
 
 restore_active_services() {
@@ -110,10 +137,13 @@ cd "$BUILD_DIR" || log_error "Falha ao acessar diretório."
 
 # --- Etapa 4 ---
 show_progress "Compilando com cache e ${BUILD_JOBS} núcleos..."
-mkdir -p "$CARGO_TARGET_DIR" || log_error "Falha ao criar cache de compilação."
-CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --release --bins --jobs "$BUILD_JOBS" > /tmp/mpro_build.log 2>&1
+prepare_build_cache
+CARGO_INCREMENTAL=0 CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --release --bins --jobs "$BUILD_JOBS" > /tmp/mpro_build.log 2>&1
 if [ $? -ne 0 ]; then
     cat /tmp/mpro_build.log
+    if grep -qiE 'no space left on device|os error 28' /tmp/mpro_build.log; then
+        log_error "A compilação ficou sem espaço no disco. Remova arquivos antigos e tente novamente."
+    fi
     log_error "Falha na compilação. Veja logs acima."
 fi
 
