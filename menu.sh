@@ -562,33 +562,20 @@ hcr_port_busy() {
     ss -lntH 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$1$"
 }
 
-<<<<<<< HEAD
-hcr_apply_kernel_tuning() {
+hcr_restore_kernel_defaults() {
     local SYSCTL_FILE="/etc/sysctl.d/99-azpro-hcr.conf"
-    local CC=""
 
     [[ "$EUID" -eq 0 ]] || return 0
+    rm -f -- "$SYSCTL_FILE"
     command -v sysctl >/dev/null 2>&1 || return 0
-
-    cat > "$SYSCTL_FILE" <<'EOF'
-# Azpro HCR: throughput e latência para o túnel TCP
-net.core.rmem_max = 16777216
-net.core.wmem_max = 16777216
-net.ipv4.tcp_rmem = 4096 131072 16777216
-net.ipv4.tcp_wmem = 4096 131072 16777216
-net.ipv4.tcp_moderate_rcvbuf = 1
-net.ipv4.tcp_slow_start_after_idle = 0
-net.ipv4.tcp_mtu_probing = 1
-net.ipv4.tcp_keepalive_time = 20
-net.ipv4.tcp_keepalive_intvl = 10
-net.ipv4.tcp_keepalive_probes = 6
-EOF
-
-    CC=$(sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null || true)
-    if grep -qw bbr <<<"$CC"; then
-        printf '%s\n' 'net.ipv4.tcp_congestion_control = bbr' >> "$SYSCTL_FILE"
+    # Evita que o tuning agressivo anterior continue ativo após a atualização.
+    sysctl -w net.ipv4.tcp_mtu_probing=0 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_keepalive_time=7200 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_keepalive_intvl=75 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_keepalive_probes=9 >/dev/null 2>&1 || true
+    if sysctl -n net.ipv4.tcp_available_congestion_control 2>/dev/null | grep -qw cubic; then
+        sysctl -w net.ipv4.tcp_congestion_control=cubic >/dev/null 2>&1 || true
     fi
-    sysctl --system >/dev/null 2>&1 || sysctl -p "$SYSCTL_FILE" >/dev/null 2>&1 || true
 }
 
 hcr_apply_session_config() {
@@ -609,8 +596,6 @@ EOF
     systemctl daemon-reload >/dev/null 2>&1 || return 1
 }
 
-=======
->>>>>>> parent of 9877efa (HCR: otimizar congestionamento e janelas TCP)
 hcr_wait_listening() {
     local PORT="$1" TENTATIVAS="${2:-10}" I
     for ((I = 0; I < TENTATIVAS; I++)); do
@@ -734,8 +719,7 @@ hcr_open_port() {
         read -r -p "Enter para continuar..." _
         return 1
     fi
-<<<<<<< HEAD
-    hcr_apply_kernel_tuning
+    hcr_restore_kernel_defaults
     if [[ -e "$SERVICE_FILE" ]]; then
         if ! hcr_install_restart_policy; then
             echo -e "${YELLOW}Não foi possível atualizar a política de recuperação da unit existente.${NC}"
@@ -746,8 +730,6 @@ hcr_open_port() {
         read -r -p "Enter para continuar..." _
         return 1
     }
-=======
->>>>>>> parent of 9877efa (HCR: otimizar congestionamento e janelas TCP)
     if ! BINARY=$(hcr_ensure_binary); then
         read -r -p "Enter para continuar..." _
         return 1
