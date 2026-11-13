@@ -254,7 +254,7 @@ async fn handle_multiprotocol_http_tunnel(
 ) -> Result<(), Error> {
     relay::tune_tcp_stream(&client_stream);
     client_stream
-        .write_all(&http_switching_response())
+        .write_all(&http_status_response(101, status))
         .await?;
     client_stream.flush().await?;
 
@@ -278,10 +278,6 @@ async fn handle_multiprotocol_http_tunnel(
 
 fn http_status_response(code: u16, status: &str) -> Vec<u8> {
     format!("HTTP/1.1 {code} {status}\r\n\r\n").into_bytes()
-}
-
-fn http_switching_response() -> Vec<u8> {
-    b"HTTP/1.1 101 Switching Protocols\r\n\r\n".to_vec()
 }
 
 #[cfg(target_os = "linux")]
@@ -335,8 +331,9 @@ async fn relay_to_backend_legacy(
 const MAX_HTTP_PREAMBLE: usize = 16 * 1024;
 // Payloads com [split] podem chegar em escritas TCP separadas, especialmente
 // em redes móveis. Aguarde os fragmentos seguintes antes de iniciar o relay.
-// Janela curta para fragmentos móveis sem adicionar 750 ms a cada conexão.
-const HTTP_PREAMBLE_IDLE: Duration = Duration::from_millis(200);
+// Igual ao Xpro: aguarda fragmentos do preâmbulo para não iniciar o relay
+// antes de receber o payload que chega em escritas TCP separadas.
+const HTTP_PREAMBLE_IDLE: Duration = Duration::from_millis(750);
 
 async fn read_http_preamble(stream: &mut TcpStream) -> Result<Vec<u8>, Error> {
     let mut buffered = Vec::with_capacity(2048);
@@ -503,8 +500,7 @@ fn has_arg(arg: &str) -> bool {
 mod tests {
     use super::{
         bypass_enabled_in, find_http_header_end, http_handshake_followup, http_legacy_followup,
-        http_status_response, http_switching_response, multiprotocol_enabled_in,
-        strip_http_decoy_prefix,
+        http_status_response, multiprotocol_enabled_in, strip_http_decoy_prefix,
     };
     use std::path::Path;
 
@@ -538,11 +534,11 @@ mod tests {
 
     #[test]
     fn option_seven_handshake_keeps_multi_status_after_the_initial_101() {
-        let mut handshake = http_switching_response();
+        let mut handshake = http_status_response(101, "Aznet");
         handshake.extend_from_slice(&http_handshake_followup("Aznet"));
         assert_eq!(
             handshake,
-            b"HTTP/1.1 101 Switching Protocols\r\n\r\nHTTP/1.1 101 Aznet\r\n\r\nHTTP/1.1 200 Aznet\r\n\r\n"
+            b"HTTP/1.1 101 Aznet\r\n\r\nHTTP/1.1 101 Aznet\r\n\r\nHTTP/1.1 200 Aznet\r\n\r\n"
         );
     }
 

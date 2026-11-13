@@ -1,5 +1,12 @@
 # Mpro - Changelog
 
+## v3.8.7 - Multiprotocolo da opção 7
+
+### Corrigido
+- Alinhado o handshake HTTP do multiprotocolo ao Xpro: a opção 7 inicia com `HTTP/1.1 101 <status>` e mantém a sequência multi-status esperada pelo cliente.
+- A janela de leitura do preâmbulo foi ajustada para 750 ms, permitindo que payloads fragmentados em várias escritas TCP sejam reunidos antes do encaminhamento.
+- Preservados os módulos SOCKS4, SOCKS5, TLS/HCR, WebSocket, SECURITY e TCP fallback do Azpro, além do tuning de sockets e relay de alto throughput.
+
 ## v3.8.6 - Opção 1 compatível com Xpro
 
 ### Corrigido
