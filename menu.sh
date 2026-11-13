@@ -562,6 +562,7 @@ hcr_port_busy() {
     ss -lntH 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]$1$"
 }
 
+<<<<<<< HEAD
 hcr_apply_kernel_tuning() {
     local SYSCTL_FILE="/etc/sysctl.d/99-azpro-hcr.conf"
     local CC=""
@@ -608,6 +609,8 @@ EOF
     systemctl daemon-reload >/dev/null 2>&1 || return 1
 }
 
+=======
+>>>>>>> parent of 9877efa (HCR: otimizar congestionamento e janelas TCP)
 hcr_wait_listening() {
     local PORT="$1" TENTATIVAS="${2:-10}" I
     for ((I = 0; I < TENTATIVAS; I++)); do
@@ -635,8 +638,6 @@ RestartSec=2
 TimeoutStopSec=10
 User=root
 WorkingDirectory=${BYPASS_DIR}
-LimitNOFILE=65535
-LimitNPROC=65535
 
 [Install]
 WantedBy=multi-user.target
@@ -733,6 +734,7 @@ hcr_open_port() {
         read -r -p "Enter para continuar..." _
         return 1
     fi
+<<<<<<< HEAD
     hcr_apply_kernel_tuning
     if [[ -e "$SERVICE_FILE" ]]; then
         if ! hcr_install_restart_policy; then
@@ -744,6 +746,8 @@ hcr_open_port() {
         read -r -p "Enter para continuar..." _
         return 1
     }
+=======
+>>>>>>> parent of 9877efa (HCR: otimizar congestionamento e janelas TCP)
     if ! BINARY=$(hcr_ensure_binary); then
         read -r -p "Enter para continuar..." _
         return 1

@@ -1,5 +1,6 @@
 # Mpro - Changelog
 
+<<<<<<< HEAD
 ## v3.8.7 - Multiprotocolo da opção 7
 
 ### Corrigido
@@ -31,6 +32,8 @@
 ### Observação
 - BBR e janelas maiores melhoram o uso da rota, mas não reduzem o ping físico nem corrigem uma rota ruim da operadora. O ganho real depende do kernel, da VPS e do cliente HCR.
 
+=======
+>>>>>>> parent of 9877efa (HCR: otimizar congestionamento e janelas TCP)
 ## v3.8.3 - Throughput xHTTP
 
 ### Otimizações
