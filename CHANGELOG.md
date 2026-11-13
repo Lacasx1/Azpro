@@ -1,5 +1,12 @@
 # Mpro - Changelog
 
+## v3.8.5 - HCR: persistência de sessão reaplicável
+
+### Corrigido
+- O menu cria o drop-in `/etc/systemd/system/hcr-8880.service.d/20-azpro-persistence.conf` com timeout de sessão de 24 horas e intervalo de keep-alive, reaplicando a configuração também quando a unit HCR já existe.
+- Ao abrir o HCR que já está ativo, o menu recarrega a unit e reinicia uma única vez para carregar a configuração persistente, em vez de retornar sem aplicar a correção.
+- O serviço continua com `Restart=on-failure`, limites de arquivos/processos e tuning TCP do kernel.
+
 ## v3.8.4 - HCR: throughput e latência do kernel
 
 ### Otimizações

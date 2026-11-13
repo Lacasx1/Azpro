@@ -590,6 +590,24 @@ EOF
     sysctl --system >/dev/null 2>&1 || sysctl -p "$SYSCTL_FILE" >/dev/null 2>&1 || true
 }
 
+hcr_apply_session_config() {
+    local DROPIN_DIR="/etc/systemd/system/${HCR_SERVICE}.d"
+    local DROPIN_FILE="${DROPIN_DIR}/20-azpro-persistence.conf"
+
+    [[ "$EUID" -eq 0 ]] || return 0
+    mkdir -p "$DROPIN_DIR" || return 1
+    cat > "$DROPIN_FILE" <<'EOF'
+[Service]
+# HCR 0.1.29 lê estas variáveis quando disponíveis; as variantes mantêm
+# compatibilidade com builds que usam nomes diferentes para o mesmo limite.
+Environment=HCR_SESSION_IDLE_TIMEOUT_SECONDS=86400
+Environment=HCR_SESSION_IDLE_TIMEOUT=86400
+Environment=HCR_IDLE_TIMEOUT_SECONDS=86400
+Environment=HCR_KEEPALIVE_INTERVAL_SECONDS=20
+EOF
+    systemctl daemon-reload >/dev/null 2>&1 || return 1
+}
+
 hcr_wait_listening() {
     local PORT="$1" TENTATIVAS="${2:-10}" I
     for ((I = 0; I < TENTATIVAS; I++)); do
@@ -721,6 +739,11 @@ hcr_open_port() {
             echo -e "${YELLOW}Não foi possível atualizar a política de recuperação da unit existente.${NC}"
         fi
     fi
+    hcr_apply_session_config || {
+        echo -e "${RED}Não foi possível aplicar a configuração persistente do HCR.${NC}"
+        read -r -p "Enter para continuar..." _
+        return 1
+    }
     if ! BINARY=$(hcr_ensure_binary); then
         read -r -p "Enter para continuar..." _
         return 1
@@ -728,11 +751,11 @@ hcr_open_port() {
     echo "Binário: ${BINARY}"
 
     if systemctl is-active --quiet "$SERVICE" 2>/dev/null; then
-        echo -e "${GREEN}HCR já está ativo na porta ${PORT}.${NC}"
-        if hcr_port_busy "$PORT"; then
-            echo -e "${AQUA}Porta ${PORT} escutando (transporte plain).${NC}"
+        echo -e "${YELLOW}Aplicando configuração persistente do HCR e reiniciando uma vez...${NC}"
+        if systemctl restart "$SERVICE" >/dev/null 2>&1 && hcr_wait_listening "$PORT"; then
+            echo -e "${GREEN}HCR ativo com configuração persistente na porta ${PORT}.${NC}"
         else
-            echo -e "${YELLOW}O serviço está ativo, mas a porta ${PORT} não responde.${NC}"
+            echo -e "${RED}O HCR não voltou a escutar a porta ${PORT}.${NC}"
         fi
         read -r -p "Enter para continuar..." _
         return 0
@@ -741,6 +764,7 @@ hcr_open_port() {
     if [[ -e "$SERVICE_FILE" ]]; then
         read -r -p "${SERVICE_FILE} já existe e está parado. Iniciar o serviço existente? (s/n): " ANSWER
         if is_yes "$ANSWER"; then
+            hcr_apply_session_config || true
             if systemctl start "$SERVICE" >/dev/null 2>&1 && hcr_wait_listening "$PORT"; then
                 echo -e "${GREEN}HCR iniciado na porta ${PORT} usando a unit existente.${NC}"
             else
