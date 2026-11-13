@@ -1,5 +1,12 @@
 # Mpro - Changelog
 
+## v3.8.8 - HCR persistente por mais de 24 horas
+
+### Corrigido
+- A configuração persistente do HCR passa a solicitar timeout de sessão de 48 horas, com aliases em segundos e milissegundos para compatibilidade entre builds oficiais.
+- A unidade systemd do HCR não possui limite de tempo de execução (`RuntimeMaxSec=infinity`) e mantém reinício automático ilimitado após falhas.
+- O serviço continua com recuperação automática e keep-alive TCP, sem alterar os argumentos oficiais de transporte e destino SSH.
+
 ## v3.8.7 - Multiprotocolo da opção 7
 
 ### Corrigido
