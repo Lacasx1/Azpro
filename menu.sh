@@ -607,12 +607,14 @@ hcr_write_unit() {
 Description=HCR Server - Porta ${HCR_PORT} (plain)
 After=network.target
 Conflicts=proxy-${HCR_PORT}.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 ExecStart=${BINARY} ${ARGS}
-Restart=on-failure
-RestartSec=5
+Restart=always
+RestartSec=2
+TimeoutStopSec=10
 User=root
 WorkingDirectory=${BYPASS_DIR}
 LimitNOFILE=65535
@@ -621,6 +623,26 @@ LimitNPROC=65535
 [Install]
 WantedBy=multi-user.target
 EOF
+}
+
+# A instalação oficial do hcr-server pode ter sido criada por outra versão do
+# instalador. O drop-in atualiza apenas a política de recuperação, sem
+# substituir a unit existente nem mexer nos argumentos escolhidos pelo usuário.
+hcr_install_restart_policy() {
+    local DROPIN_DIR="${SYSTEMD_DIR}/${HCR_SERVICE}.d"
+    local DROPIN_FILE="${DROPIN_DIR}/restart.conf"
+
+    mkdir -p "$DROPIN_DIR" || return 1
+    cat > "$DROPIN_FILE" <<'EOF'
+[Unit]
+StartLimitIntervalSec=0
+
+[Service]
+Restart=always
+RestartSec=2
+TimeoutStopSec=10
+EOF
+    systemctl daemon-reload >/dev/null 2>&1 || return 1
 }
 
 hcr_manage_binary() {
@@ -694,6 +716,11 @@ hcr_open_port() {
         return 1
     fi
     hcr_apply_kernel_tuning
+    if [[ -e "$SERVICE_FILE" ]]; then
+        if ! hcr_install_restart_policy; then
+            echo -e "${YELLOW}Não foi possível atualizar a política de recuperação da unit existente.${NC}"
+        fi
+    fi
     if ! BINARY=$(hcr_ensure_binary); then
         read -r -p "Enter para continuar..." _
         return 1
