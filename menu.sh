@@ -598,20 +598,12 @@ hcr_apply_session_config() {
     mkdir -p "$DROPIN_DIR" || return 1
     cat > "$DROPIN_FILE" <<'EOF'
 [Service]
-# Sessões HCR devem permanecer ativas por 48 horas quando o binário aceitar
-# a configuração; as variantes mantêm compatibilidade entre builds oficiais.
-Environment=HCR_SESSION_IDLE_TIMEOUT_SECONDS=172800
-Environment=HCR_SESSION_IDLE_TIMEOUT=172800
-Environment=HCR_IDLE_TIMEOUT_SECONDS=172800
-Environment=HCR_SESSION_TIMEOUT_SECONDS=172800
-Environment=HCR_SESSION_IDLE_TIMEOUT_MS=172800000
-Environment=HCR_IDLE_TIMEOUT_MS=172800000
+# HCR 0.1.29 lê estas variáveis quando disponíveis; as variantes mantêm
+# compatibilidade com builds que usam nomes diferentes para o mesmo limite.
+Environment=HCR_SESSION_IDLE_TIMEOUT_SECONDS=86400
+Environment=HCR_SESSION_IDLE_TIMEOUT=86400
+Environment=HCR_IDLE_TIMEOUT_SECONDS=86400
 Environment=HCR_KEEPALIVE_INTERVAL_SECONDS=20
-Restart=always
-RestartSec=2
-RuntimeMaxSec=infinity
-TimeoutStartSec=infinity
-TimeoutStopSec=10
 EOF
     systemctl daemon-reload >/dev/null 2>&1 || return 1
 }
@@ -666,8 +658,6 @@ StartLimitIntervalSec=0
 [Service]
 Restart=always
 RestartSec=2
-RuntimeMaxSec=infinity
-TimeoutStartSec=infinity
 TimeoutStopSec=10
 EOF
     systemctl daemon-reload >/dev/null 2>&1 || return 1
