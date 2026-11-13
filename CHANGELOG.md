@@ -1,5 +1,12 @@
 # Mpro - Changelog
 
+## v3.8.6 - Opção 1 compatível com Xpro
+
+### Corrigido
+- A opção 1 agora segue o fluxo HTTP legado do Xpro: resposta `101`, leitura curta do início da sessão, resposta `200` e seleção posterior entre SSH local (`127.0.0.1:22`) e VPN local (`127.0.0.1:1194`).
+- O primeiro buffer usado para identificar o backend não é retransmitido antecipadamente; o relay assume a sessão depois da seleção, evitando duplicação do preâmbulo.
+- O multiprotocolo continua separado e disponível somente quando habilitado por porta, preservando os modos SOCKS, WebSocket, TLS/HCR e fallback fora do fluxo legado.
+
 ## v3.8.5 - HCR: persistência de sessão reaplicável
 
 ### Corrigido

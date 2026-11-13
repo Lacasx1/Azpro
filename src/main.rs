@@ -226,11 +226,8 @@ async fn handle_legacy_http_tunnel(
         .await?;
     client_stream.flush().await?;
 
-    // O primeiro pacote já contém dados do túnel. Antes ele era descartado e
-    // o código fazia um `peek` adicional de até 1 segundo para escolher o
-    // backend, o que adicionava latência e podia perder bytes do SSH/VPN.
-    let mut initial_payload = [0u8; 16 * 1024];
-    let initial_len = client_stream.read(&mut initial_payload).await?;
+    let mut initial_payload = [0u8; 1024];
+    let _ = client_stream.read(&mut initial_payload).await?;
     client_stream
         .write_all(&http_legacy_followup(status))
         .await?;
@@ -238,15 +235,15 @@ async fn handle_legacy_http_tunnel(
 
     let addr_proxy = if force_ssh || ssh_only {
         "127.0.0.1:22"
-    } else if initial_len == 0
-        || String::from_utf8_lossy(&initial_payload[..initial_len]).contains("SSH")
-    {
-        "127.0.0.1:22"
     } else {
-        "127.0.0.1:1194"
+        match timeout(Duration::from_secs(1), peek_stream(&client_stream)).await {
+            Ok(Ok(data)) if data.contains("SSH") || data.is_empty() => "127.0.0.1:22",
+            Ok(_) => "127.0.0.1:1194",
+            Err(_) => "127.0.0.1:22",
+        }
     };
     println!("[HTTP] Backend selecionado: {}", addr_proxy);
-    relay_to_backend_legacy(client_stream, addr_proxy, &initial_payload[..initial_len]).await?;
+    relay_to_backend_legacy(client_stream, addr_proxy).await?;
     Ok(())
 }
 
@@ -316,19 +313,21 @@ fn http_legacy_followup(status: &str) -> Vec<u8> {
     http_status_response(200, status)
 }
 
+async fn peek_stream(stream: &TcpStream) -> Result<String, Error> {
+    let mut peek_buffer = vec![0; 8192];
+    let bytes_peeked = stream.peek(&mut peek_buffer).await?;
+    Ok(String::from_utf8_lossy(&peek_buffer[..bytes_peeked]).to_string())
+}
+
 async fn relay_to_backend_legacy(
     mut client_stream: TcpStream,
     addr: &str,
-    initial_payload: &[u8],
 ) -> Result<(), Error> {
     let mut server_stream = timeout(Duration::from_secs(3), TcpStream::connect(addr))
         .await
         .map_err(|_| Error::new(ErrorKind::TimedOut, "timeout conectando backend"))??;
     relay::tune_tcp_stream(&server_stream);
     enable_quickack(&server_stream);
-    if !initial_payload.is_empty() {
-        server_stream.write_all(initial_payload).await?;
-    }
     let _ = relay::copy_bidirectional(&mut client_stream, &mut server_stream).await;
     Ok(())
 }
