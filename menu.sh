@@ -33,6 +33,11 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 BOX_WIDTH=46
+# The box includes four border/padding columns. Keep it within the terminal
+# width so narrow mobile terminals do not wrap the English menu lines.
+if [[ "${COLUMNS:-}" =~ ^[0-9]+$ ]] && (( COLUMNS >= 28 && COLUMNS < BOX_WIDTH + 4 )); then
+    BOX_WIDTH=$((COLUMNS - 4))
+fi
 
 get_language() {
     local LANGUAGE="pt-BR"
