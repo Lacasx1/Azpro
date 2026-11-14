@@ -5,11 +5,14 @@ use tokio::time::{sleep, timeout, Duration};
 
 const MAX_PEEK: usize = 16 * 1024;
 const DETECT_TIMEOUT: Duration = Duration::from_millis(800);
+const HCR_HEADER_SIZE: usize = 62;
+const HCR_MAX_PAYLOAD: u32 = 262_144;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Protocol {
     Socks4,
     Socks5,
+    Hcr,
     Tls,
     WebSocket,
     Security,
@@ -22,6 +25,12 @@ pub enum Protocol {
 pub fn detect_protocol(data: &[u8]) -> Option<Protocol> {
     if data.is_empty() {
         return None;
+    }
+
+    match sniff_hcr_frame(data) {
+        Some(true) => return Some(Protocol::Hcr),
+        None => return None,
+        _ => {}
     }
 
     if data[0] == 0x04 {
@@ -119,6 +128,7 @@ pub async fn detect_from_stream(stream: &TcpStream) -> io::Result<Protocol> {
     match result {
         Ok(classification) => classification,
         Err(_) if bytes_peeked == 0 => Ok(Protocol::SshDirect),
+        Err(_) if is_socks4_prefix(&buffer[..bytes_peeked]) => Ok(Protocol::Socks4),
         Err(_) if is_incomplete_http_message(&buffer[..bytes_peeked]) => Ok(Protocol::Http),
         Err(_) => Ok(Protocol::Unknown),
     }
@@ -170,6 +180,35 @@ fn is_http_token(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
 }
 
+/// `Some(true)` is a valid HCR header, `Some(false)` cannot be HCR, and `None`
+/// means the bytes still match the HCR prefix and more are needed.
+fn sniff_hcr_frame(data: &[u8]) -> Option<bool> {
+    if data.is_empty() {
+        return None;
+    }
+    // Uma nova conexão HCR sempre começa com ReqConnect (opcode 1). Os outros
+    // opcodes pertencem a quadros subsequentes do fluxo já estabelecido e se
+    // sobrepõem às assinaturas de SOCKS4/SOCKS5 no início da conexão.
+    if data[0] != 1 {
+        return Some(false);
+    }
+    if data.len() < 2 {
+        return None;
+    }
+    if data[1] != 0x01 {
+        return Some(false);
+    }
+    if data.len() < HCR_HEADER_SIZE {
+        return None;
+    }
+    let payload_len = u32::from_be_bytes([data[58], data[59], data[60], data[61]]);
+    Some(payload_len <= HCR_MAX_PAYLOAD)
+}
+
+fn is_socks4_prefix(data: &[u8]) -> bool {
+    data.len() >= 2 && data[0] == 0x04 && matches!(data[1], 0x01 | 0x02)
+}
+
 fn header_value<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
     headers.lines().skip(1).find_map(|line| {
         let (key, value) = line.split_once(':')?;
@@ -210,6 +249,9 @@ fn is_valid_websocket_upgrade(headers: &str) -> bool {
 }
 
 fn may_be_incomplete_known_prefix(data: &[u8]) -> bool {
+    if sniff_hcr_frame(data).is_none() {
+        return true;
+    }
     const PREFIXES: [&[u8]; 13] = [
         b"SSH-",
         b"SECURITY",
@@ -236,7 +278,10 @@ fn starts_with_ascii_case_insensitive(data: &[u8], prefix: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_protocol, has_expect_continue, is_incomplete_http_message, Protocol};
+    use super::{
+        detect_protocol, has_expect_continue, is_incomplete_http_message, Protocol,
+        HCR_HEADER_SIZE, HCR_MAX_PAYLOAD,
+    };
 
     #[test]
     fn detects_binary_and_raw_protocol_signatures() {
@@ -249,6 +294,18 @@ mod tests {
         );
         assert_eq!(detect_protocol(b"SECURITY /\r\n"), Some(Protocol::Security));
         assert_eq!(detect_protocol(b"AUTH payload"), Some(Protocol::Security));
+    }
+
+    #[test]
+    fn detects_complete_hcr_header_before_overlapping_protocols() {
+        let mut hcr = [0u8; HCR_HEADER_SIZE];
+        hcr[0] = 1; // HCR ReqConnect
+        hcr[1] = 1; // HCR protocol version
+        assert_eq!(detect_protocol(&hcr), Some(Protocol::Hcr));
+        assert_eq!(detect_protocol(&hcr[..2]), None);
+
+        hcr[58..62].copy_from_slice(&(HCR_MAX_PAYLOAD + 1).to_be_bytes());
+        assert_eq!(detect_protocol(&hcr), None);
     }
 
     #[test]

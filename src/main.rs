@@ -155,6 +155,12 @@ async fn handle_multiprotocol_client(
         Protocol::Socks5 => socks5::handle_socks5(client_stream)
             .await
             .map_err(|e| Error::new(ErrorKind::Other, format!("SOCKS5: {e}"))),
+        Protocol::Hcr if hcr_enabled => tls::handle_hcr(client_stream)
+            .await
+            .map_err(|e| Error::new(ErrorKind::Other, format!("HCR: {e}"))),
+        Protocol::Hcr => tcp_fallback::handle_tcp(client_stream)
+            .await
+            .map_err(|e| Error::new(ErrorKind::Other, format!("HCR desativado: {e}"))),
         Protocol::Tls if hcr_enabled => tls::handle_hcr(client_stream)
             .await
             .map_err(|e| Error::new(ErrorKind::Other, format!("HCR TLS: {e}"))),
