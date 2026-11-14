@@ -1078,6 +1078,11 @@ toggle_port_hcr() {
     if [[ "$PREVIOUS_HCR" == true ]]; then
         rm -f -- "$FLAG" || return 1
     else
+        if ! systemctl is-active --quiet "$HCR_SERVICE" 2>/dev/null; then
+            echo -e "${RED}O servidor HCR oficial (${HCR_SERVICE}, porta ${HCR_PORT}) precisa estar ativo.${NC}"
+            read -r -p "Enter para continuar..." _
+            return 1
+        fi
         if ! touch "$FLAG" "$MULTIPROTOCOL_FLAG"; then
             [[ "$PREVIOUS_HCR" == true ]] && touch "$FLAG"
             [[ "$PREVIOUS_MULTIPROTOCOL" == true ]] && touch "$MULTIPROTOCOL_FLAG"

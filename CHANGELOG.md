@@ -5,7 +5,8 @@
 ### Novo
 - O submenu da opção 7 aceita `H` para abrir o seletor de suporte HCR nas portas Azpro ativas, sem criar nem fechar portas.
 - O suporte HCR tem marcador independente por porta; ao ativar, o Azpro também habilita o dispatcher multiprotocolo nessa porta se ainda estiver desligado.
-- O dispatcher envia TLS ao handler HCR somente quando o marcador da porta está ativo; caso contrário, preserva o encaminhamento TLS legado.
+- TLS e preâmbulos proprietários desconhecidos em portas HCR-ON são encaminhados intactos ao servidor HCR oficial em `127.0.0.1:8880`, preservando o tratamento do binário HCR e sem exigir certificado no Azpro.
+- O menu só ativa o marcador HCR quando `hcr-8880.service` está ativo; HCR OFF preserva os encaminhamentos anteriores dos demais protocolos.
 
 ## v3.9.0 - Manter sessões HCR ativas
 
