@@ -543,24 +543,55 @@ hcr_ensure_binary() {
 
 # Descobre o formato de argumentos aceito pelo binário instalado.
 hcr_exec_args() {
-    local PORT="$1" BINARY="$2" HELP=""
+    local PORT="$1" BINARY="$2" HELP="" FRAME_ARGS=""
 
     HELP=$(timeout 5 "$BINARY" -h 2>&1 </dev/null) || true
+    if grep -q -- "-max-download-frame" <<<"$HELP"; then
+        FRAME_ARGS=" -max-download-frame 65536"
+    fi
     if grep -q -- "-listen" <<<"$HELP"; then
-        printf '%s' "-listen :${PORT} -target ${HCR_SSH_TARGET} -transport plain"
+        printf '%s' "-listen :${PORT} -target ${HCR_SSH_TARGET} -transport plain${FRAME_ARGS}"
     else
-        printf '%s' "--port ${PORT} --transport plain"
+        printf '%s' "--port ${PORT} --transport plain${FRAME_ARGS}"
     fi
 }
 
 hcr_alternate_args() {
-    local ARGS="$1" PORT="$2"
+    local ARGS="$1" PORT="$2" FRAME_ARGS=""
+
+    if [[ "$ARGS" == *"-max-download-frame"* ]]; then
+        FRAME_ARGS=" -max-download-frame 65536"
+    fi
 
     if [[ "$ARGS" == -listen* ]]; then
-        printf '%s' "--port ${PORT} --transport plain"
+        printf '%s' "--port ${PORT} --transport plain${FRAME_ARGS}"
     else
-        printf '%s' "-listen :${PORT} -target ${HCR_SSH_TARGET} -transport plain"
+        printf '%s' "-listen :${PORT} -target ${HCR_SSH_TARGET} -transport plain${FRAME_ARGS}"
     fi
+}
+
+hcr_apply_download_frame_tuning() {
+    local BINARY="$1" SERVICE_FILE="$2" HELP="" BACKUP=""
+
+    [[ -x "$BINARY" && -f "$SERVICE_FILE" ]] || return 0
+    HELP=$(timeout 5 "$BINARY" -h 2>&1 </dev/null) || true
+    grep -q -- "-max-download-frame" <<<"$HELP" || return 0
+    grep -Eq '^[[:space:]]*ExecStart=.*hcr-server' "$SERVICE_FILE" || return 0
+    grep -Eq '^[[:space:]]*ExecStart=.*max-download-frame([=[:space:]]|$)' "$SERVICE_FILE" && return 0
+
+    BACKUP="${SERVICE_FILE}.bak.$(date +%Y%m%d-%H%M%S)"
+    cp -a -- "$SERVICE_FILE" "$BACKUP" || return 1
+    if ! sed -i -E '/^[[:space:]]*ExecStart=.*hcr-server/ { /max-download-frame/! s/[[:space:]]*$/ -max-download-frame 65536/; }' "$SERVICE_FILE"; then
+        cp -a -- "$BACKUP" "$SERVICE_FILE"
+        return 1
+    fi
+    if ! grep -Eq '^[[:space:]]*ExecStart=.*-max-download-frame[[:space:]]+65536([[:space:]]|$)' "$SERVICE_FILE" || ! systemctl daemon-reload >/dev/null 2>&1; then
+        cp -a -- "$BACKUP" "$SERVICE_FILE"
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        return 1
+    fi
+    echo -e "${GREEN}Blocos de download HCR ajustados para até 64 KiB; unit anterior salva em ${BACKUP}.${NC}"
+    return 0
 }
 
 hcr_port_busy() {
@@ -800,6 +831,9 @@ hcr_open_port() {
     echo "Binário: ${BINARY}"
 
     if systemctl is-active --quiet "$SERVICE" 2>/dev/null; then
+        if ! hcr_apply_download_frame_tuning "$BINARY" "$SERVICE_FILE"; then
+            echo -e "${YELLOW}Não foi possível ajustar o tamanho dos blocos de download HCR; mantendo a configuração atual.${NC}"
+        fi
         echo -e "${YELLOW}Aplicando configuração persistente do HCR e reiniciando uma vez...${NC}"
         if systemctl restart "$SERVICE" >/dev/null 2>&1 && hcr_wait_listening "$PORT"; then
             echo -e "${GREEN}HCR ativo com configuração persistente na porta ${PORT}.${NC}"
@@ -814,6 +848,9 @@ hcr_open_port() {
         read -r -p "${SERVICE_FILE} já existe e está parado. Iniciar o serviço existente? (s/n): " ANSWER
         if is_yes "$ANSWER"; then
             hcr_apply_session_config || true
+            if ! hcr_apply_download_frame_tuning "$BINARY" "$SERVICE_FILE"; then
+                echo -e "${YELLOW}Não foi possível ajustar o tamanho dos blocos de download HCR; mantendo a configuração atual.${NC}"
+            fi
             if systemctl start "$SERVICE" >/dev/null 2>&1 && hcr_wait_listening "$PORT"; then
                 echo -e "${GREEN}HCR iniciado na porta ${PORT} usando a unit existente.${NC}"
             else

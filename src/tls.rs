@@ -54,16 +54,16 @@ pub async fn handle_tls(socket: TcpStream) -> Result<()> {
 
 /// Encaminha o fluxo HCR intacto ao servidor oficial HCR em transporte plain.
 pub async fn handle_hcr(mut socket: TcpStream) -> Result<()> {
-    socket.set_nodelay(true)?;
+    crate::relay::tune_tcp_stream(&socket);
     let mut hcr = timeout(
         HCR_BACKEND_CONNECT_TIMEOUT,
         TcpStream::connect(HCR_BACKEND_ADDR),
     )
     .await
     .map_err(|_| anyhow::anyhow!("timeout conectando ao servidor HCR em {HCR_BACKEND_ADDR}"))??;
-    hcr.set_nodelay(true)?;
+    crate::relay::tune_tcp_stream(&hcr);
     info!("HCR multiprotocolo -> servidor oficial {HCR_BACKEND_ADDR}");
-    tokio::io::copy_bidirectional(&mut socket, &mut hcr).await?;
+    crate::relay::copy_bidirectional(&mut socket, &mut hcr).await?;
     Ok(())
 }
 

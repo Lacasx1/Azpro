@@ -1,5 +1,11 @@
 # Mpro - Changelog
 
+## v3.9.2 - Melhorias de desempenho HCR
+
+### Melhorado
+- O relay HCR usa o relay compartilhado de 128 KiB e os ajustes TCP já aplicados aos outros protocolos, em ambos os sockets.
+- Quando suportado pelo binário instalado, o menu configura quadros de download HCR de até 65.536 bytes (antes: 16 KiB), reduzindo a sobrecarga de polling em transferências maiores; a unit HCR existente é atualizada com backup ao iniciar/reiniciar pelo menu.
+
 ## v3.9.1 - HCR por porta no multiprotocolo
 
 ### Novo
