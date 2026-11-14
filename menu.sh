@@ -1129,8 +1129,6 @@ manage_hcr_support() {
         box_top
         box_line "${WHITE}${BOLD}SUPORTE MULTIPROTOCOLO HCR${NC}"
         box_mid
-        box_line "HCR só funciona com multiprotocolo ON na mesma porta."
-        box_line "Esta opção não altera o estado do multiprotocolo."
         if ((${#ACTIVE_PORTS[@]} == 0)); then
             box_line "${YELLOW}Nenhuma porta Azpro ativa.${NC}"
         else
