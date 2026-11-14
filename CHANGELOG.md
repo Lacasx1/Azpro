@@ -1,5 +1,12 @@
 # Mpro - Changelog
 
+## v3.9.0 - Manter sessões HCR ativas
+
+### Corrigido
+- O HCR 0.1.29 encerra sessões após 120 segundos ociosos; keepalives do kernel não contam como tráfego de sessão nesse limite.
+- Ao abrir o HCR, o Azpro configura `ClientAliveInterval 30` e `ClientAliveCountMax 6` no OpenSSH, enviando keepalives de protocolo a cada 30 segundos para manter a sessão HCR ativa e detectar clientes realmente sem resposta.
+- A configuração do OpenSSH é validada antes de ser recarregada; em caso de erro, o drop-in anterior é restaurado.
+
 ## v3.8.9 - Restaurar estabilidade de ping do HCR
 
 ### Corrigido

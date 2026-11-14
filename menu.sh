@@ -583,6 +583,64 @@ hcr_restore_kernel_defaults() {
     fi
 }
 
+hcr_apply_ssh_keepalive() {
+    local SSHD_CONFIG="/etc/ssh/sshd_config"
+    local SSHD_DROPIN_DIR="/etc/ssh/sshd_config.d"
+    local SSHD_DROPIN="${SSHD_DROPIN_DIR}/50-azpro-hcr-keepalive.conf"
+    local SSHD_BIN SSH_UNIT="" HAD_DROPIN=0
+
+    SSHD_BIN=$(command -v sshd) || {
+        echo -e "${RED}sshd não encontrado; não foi possível ativar o keepalive SSH do HCR.${NC}" >&2
+        return 1
+    }
+    if ! grep -Eq '^[[:space:]]*Include[[:space:]].*/etc/ssh/sshd_config\.d/\*' "$SSHD_CONFIG"; then
+        echo -e "${RED}A configuração do sshd não inclui ${SSHD_DROPIN_DIR}; keepalive do HCR não aplicado.${NC}" >&2
+        return 1
+    fi
+
+    mkdir -p "$SSHD_DROPIN_DIR" || return 1
+    local BACKUP
+    BACKUP=$(mktemp) || return 1
+    if [[ -f "$SSHD_DROPIN" ]]; then
+        HAD_DROPIN=1
+        cp -a "$SSHD_DROPIN" "$BACKUP" || { rm -f "$BACKUP"; return 1; }
+    else
+        : > "$BACKUP"
+    fi
+    cat > "$SSHD_DROPIN" <<'EOF'
+# Keep SSH application traffic flowing through HCR's 120-second idle window.
+ClientAliveInterval 30
+ClientAliveCountMax 6
+EOF
+    if ! "$SSHD_BIN" -t; then
+        if (( HAD_DROPIN )); then cp -a "$BACKUP" "$SSHD_DROPIN"; else rm -f "$SSHD_DROPIN"; fi
+        rm -f "$BACKUP"
+        echo -e "${RED}Configuração inválida do sshd; keepalive HCR não aplicado.${NC}" >&2
+        return 1
+    fi
+    if ! "$SSHD_BIN" -T 2>/dev/null | grep -qx 'clientaliveinterval 30' ||
+        ! "$SSHD_BIN" -T 2>/dev/null | grep -qx 'clientalivecountmax 6'; then
+        if (( HAD_DROPIN )); then cp -a "$BACKUP" "$SSHD_DROPIN"; else rm -f "$SSHD_DROPIN"; fi
+        rm -f "$BACKUP"
+        echo -e "${RED}O sshd não aplicou os valores de keepalive solicitados; configuração restaurada.${NC}" >&2
+        return 1
+    fi
+
+    if systemctl is-active --quiet ssh.service 2>/dev/null; then
+        SSH_UNIT="ssh.service"
+    elif systemctl is-active --quiet sshd.service 2>/dev/null; then
+        SSH_UNIT="sshd.service"
+    fi
+    if [[ -z "$SSH_UNIT" ]] || ! systemctl reload "$SSH_UNIT" >/dev/null 2>&1; then
+        if (( HAD_DROPIN )); then cp -a "$BACKUP" "$SSHD_DROPIN"; else rm -f "$SSHD_DROPIN"; fi
+        rm -f "$BACKUP"
+        echo -e "${RED}Não foi possível recarregar o sshd; keepalive HCR não aplicado.${NC}" >&2
+        return 1
+    fi
+    rm -f "$BACKUP"
+    return 0
+}
+
 hcr_apply_session_config() {
     local DROPIN_DIR="/etc/systemd/system/${HCR_SERVICE}.d"
     local DROPIN_FILE="${DROPIN_DIR}/20-azpro-persistence.conf"
@@ -591,14 +649,14 @@ hcr_apply_session_config() {
     mkdir -p "$DROPIN_DIR" || return 1
     cat > "$DROPIN_FILE" <<'EOF'
 [Service]
-# HCR 0.1.29 lê estas variáveis quando disponíveis; as variantes mantêm
-# compatibilidade com builds que usam nomes diferentes para o mesmo limite.
+# Requests a long idle timeout when supported by the installed HCR build.
 Environment=HCR_SESSION_IDLE_TIMEOUT_SECONDS=86400
 Environment=HCR_SESSION_IDLE_TIMEOUT=86400
 Environment=HCR_IDLE_TIMEOUT_SECONDS=86400
 Environment=HCR_KEEPALIVE_INTERVAL_SECONDS=20
 EOF
     systemctl daemon-reload >/dev/null 2>&1 || return 1
+    hcr_apply_ssh_keepalive || return 1
 }
 
 hcr_wait_listening() {
