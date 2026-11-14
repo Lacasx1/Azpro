@@ -128,9 +128,16 @@ pub async fn detect_from_stream(stream: &TcpStream) -> io::Result<Protocol> {
     match result {
         Ok(classification) => classification,
         Err(_) if bytes_peeked == 0 => Ok(Protocol::SshDirect),
-        Err(_) if is_socks4_prefix(&buffer[..bytes_peeked]) => Ok(Protocol::Socks4),
-        Err(_) if is_incomplete_http_message(&buffer[..bytes_peeked]) => Ok(Protocol::Http),
-        Err(_) => Ok(Protocol::Unknown),
+        Err(_) => {
+            let data = &buffer[..bytes_peeked];
+            if let Some(protocol) = classify_after_protocol_timeout(data) {
+                Ok(protocol)
+            } else if is_incomplete_http_message(data) {
+                Ok(Protocol::Http)
+            } else {
+                Ok(Protocol::Unknown)
+            }
+        }
     }
 }
 
@@ -181,15 +188,14 @@ fn is_http_token(byte: u8) -> bool {
 }
 
 /// `Some(true)` is a valid HCR header, `Some(false)` cannot be HCR, and `None`
-/// means the bytes still match the HCR prefix and more are needed.
+/// means the bytes still match an HCR prefix and more are needed. Any of the six
+/// HCR request opcodes may arrive on a separate TCP connection, so inspect all
+/// of them before SOCKS4/SOCKS5, whose first bytes overlap with HCR opcodes 4/5.
 fn sniff_hcr_frame(data: &[u8]) -> Option<bool> {
     if data.is_empty() {
         return None;
     }
-    // Uma nova conexão HCR sempre começa com ReqConnect (opcode 1). Os outros
-    // opcodes pertencem a quadros subsequentes do fluxo já estabelecido e se
-    // sobrepõem às assinaturas de SOCKS4/SOCKS5 no início da conexão.
-    if data[0] != 1 {
+    if !(1..=6).contains(&data[0]) {
         return Some(false);
     }
     if data.len() < 2 {
@@ -207,6 +213,27 @@ fn sniff_hcr_frame(data: &[u8]) -> Option<bool> {
 
 fn is_socks4_prefix(data: &[u8]) -> bool {
     data.len() >= 2 && data[0] == 0x04 && matches!(data[1], 0x01 | 0x02)
+}
+
+fn is_complete_socks4_request(data: &[u8]) -> bool {
+    is_socks4_prefix(data) && data.len() >= 9 && data[8..].contains(&0)
+}
+
+fn is_complete_socks5_greeting(data: &[u8]) -> bool {
+    data.len() >= 2
+        && data[0] == 0x05
+        && data[1] > 0
+        && data.len() >= 2 + usize::from(data[1])
+}
+
+fn classify_after_protocol_timeout(data: &[u8]) -> Option<Protocol> {
+    if is_complete_socks4_request(data) {
+        Some(Protocol::Socks4)
+    } else if is_complete_socks5_greeting(data) {
+        Some(Protocol::Socks5)
+    } else {
+        None
+    }
 }
 
 fn header_value<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
@@ -279,14 +306,18 @@ fn starts_with_ascii_case_insensitive(data: &[u8], prefix: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        detect_protocol, has_expect_continue, is_incomplete_http_message, Protocol,
-        HCR_HEADER_SIZE, HCR_MAX_PAYLOAD,
+        classify_after_protocol_timeout, detect_protocol, has_expect_continue,
+        is_incomplete_http_message, Protocol, HCR_HEADER_SIZE, HCR_MAX_PAYLOAD,
     };
 
     #[test]
     fn detects_binary_and_raw_protocol_signatures() {
-        assert_eq!(detect_protocol(&[0x04, 0x01, 0x00]), Some(Protocol::Socks4));
-        assert_eq!(detect_protocol(&[0x05, 0x01, 0x00]), Some(Protocol::Socks5));
+        let socks4 = b"\x04\x01\x00\x50\x7f\x00\x00\x01user\x00";
+        let socks5 = b"\x05\x01\x00";
+        assert_eq!(detect_protocol(socks4), None);
+        assert_eq!(detect_protocol(socks5), None);
+        assert_eq!(classify_after_protocol_timeout(socks4), Some(Protocol::Socks4));
+        assert_eq!(classify_after_protocol_timeout(socks5), Some(Protocol::Socks5));
         assert_eq!(detect_protocol(&[0x16, 0x03, 0x01]), Some(Protocol::Tls));
         assert_eq!(
             detect_protocol(b"SSH-2.0-client\r\n"),
@@ -297,11 +328,14 @@ mod tests {
     }
 
     #[test]
-    fn detects_complete_hcr_header_before_overlapping_protocols() {
+    fn detects_all_complete_hcr_opcodes_before_overlapping_protocols() {
         let mut hcr = [0u8; HCR_HEADER_SIZE];
-        hcr[0] = 1; // HCR ReqConnect
         hcr[1] = 1; // HCR protocol version
-        assert_eq!(detect_protocol(&hcr), Some(Protocol::Hcr));
+        for opcode in 1..=6 {
+            hcr[0] = opcode;
+            assert_eq!(detect_protocol(&hcr), Some(Protocol::Hcr));
+        }
+        hcr[0] = 1;
         assert_eq!(detect_protocol(&hcr[..2]), None);
 
         hcr[58..62].copy_from_slice(&(HCR_MAX_PAYLOAD + 1).to_be_bytes());

@@ -5,7 +5,7 @@
 ### Novo
 - O submenu da opção 7 aceita `H` para abrir o seletor de suporte HCR nas portas Azpro ativas, sem criar nem fechar portas.
 - O suporte HCR tem marcador independente por porta; a tecla H não cria, remove nem altera o marcador do dispatcher multiprotocolo. Para rotear HCR, multiprotocolo precisa estar ON separadamente na mesma porta.
-- O dispatcher reconhece o quadro inicial HCR de 62 bytes (ReqConnect) antes do roteamento comum e o encaminha intacto ao servidor oficial em `127.0.0.1:8880`; handshakes TLS e preâmbulos desconhecidos também seguem para o HCR quando a opção está ON.
+- O dispatcher reconhece cabeçalhos HCR válidos de 62 bytes para os seis opcodes antes do roteamento comum — inclusive os códigos sobrepostos ao SOCKS4/5 — e os encaminha intactos ao servidor oficial em `127.0.0.1:8880`; quadros HCR parciais não são consumidos e TLS/preâmbulos desconhecidos também seguem ao HCR quando ON.
 - O menu só ativa o marcador HCR quando `hcr-8880.service` está ativo; HCR OFF preserva os encaminhamentos anteriores dos demais protocolos.
 
 ## v3.9.0 - Manter sessões HCR ativas
