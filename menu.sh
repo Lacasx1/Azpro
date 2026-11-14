@@ -998,6 +998,10 @@ multiprotocol_flag_for_port() {
     printf '%s/multiprotocol-%s.enabled' "$BYPASS_DIR" "$1"
 }
 
+hcr_flag_for_port() {
+    printf '%s/hcr-%s.enabled' "$BYPASS_DIR" "$1"
+}
+
 is_managed_numeric_port_service() {
     local SERVICE_FILE="$1"
     local SERVICE_NAME PORT
@@ -1055,6 +1059,107 @@ toggle_port_multiprotocol() {
     read -r -p "Enter para continuar..." _
 }
 
+toggle_port_hcr() {
+    local PORT="$1" SERVICE="proxy-${1}.service" FLAG MULTIPROTOCOL_FLAG PREVIOUS_HCR=false PREVIOUS_MULTIPROTOCOL=false CONFIRM=""
+    FLAG=$(hcr_flag_for_port "$PORT")
+    MULTIPROTOCOL_FLAG=$(multiprotocol_flag_for_port "$PORT")
+    systemctl is-active --quiet "$SERVICE" 2>/dev/null || {
+        echo -e "${RED}A porta ${PORT} não está mais ativa.${NC}"
+        read -r -p "Enter para continuar..." _
+        return 1
+    }
+
+    read -r -p "Ativar/desativar HCR na porta ${PORT}? O serviço será reiniciado e as conexões atuais cairão. (s/N): " CONFIRM
+    is_yes "$CONFIRM" || return 0
+    mkdir -p "$BYPASS_DIR" || return 1
+
+    [[ -f "$FLAG" ]] && PREVIOUS_HCR=true
+    [[ -f "$MULTIPROTOCOL_FLAG" ]] && PREVIOUS_MULTIPROTOCOL=true
+    if [[ "$PREVIOUS_HCR" == true ]]; then
+        rm -f -- "$FLAG" || return 1
+    else
+        if ! touch "$FLAG" "$MULTIPROTOCOL_FLAG"; then
+            [[ "$PREVIOUS_HCR" == true ]] && touch "$FLAG"
+            [[ "$PREVIOUS_MULTIPROTOCOL" == true ]] && touch "$MULTIPROTOCOL_FLAG"
+            [[ "$PREVIOUS_HCR" != true ]] && rm -f -- "$FLAG"
+            [[ "$PREVIOUS_MULTIPROTOCOL" != true ]] && rm -f -- "$MULTIPROTOCOL_FLAG"
+            echo -e "${RED}Não foi possível gravar a configuração HCR da porta ${PORT}.${NC}"
+            return 1
+        fi
+    fi
+
+    if systemctl restart "$SERVICE" 2>/dev/null; then
+        if [[ "$PREVIOUS_HCR" == true ]]; then
+            echo -e "${YELLOW}HCR desativado na porta ${PORT}.${NC}"
+        else
+            echo -e "${GREEN}HCR ativado na porta ${PORT}; multiprotocolo garantido.${NC}"
+        fi
+    else
+        if [[ "$PREVIOUS_HCR" == true ]]; then
+            touch "$FLAG"
+        else
+            rm -f -- "$FLAG"
+        fi
+        if [[ "$PREVIOUS_MULTIPROTOCOL" != true ]]; then
+            rm -f -- "$MULTIPROTOCOL_FLAG"
+        fi
+        systemctl restart "$SERVICE" >/dev/null 2>&1 || true
+        echo -e "${RED}Falha ao reiniciar ${SERVICE}; configuração anterior restaurada.${NC}"
+    fi
+    read -r -p "Enter para continuar..." _
+}
+
+manage_hcr_support() {
+    local ACTION SERVICE_FILE SERVICE_NAME PORT FLAG INDEX
+    local -a ACTIVE_PORTS=()
+    while true; do
+        ACTIVE_PORTS=()
+        for SERVICE_FILE in "${SYSTEMD_DIR}"/proxy-*.service; do
+            [[ -f "$SERVICE_FILE" ]] || continue
+            is_managed_numeric_port_service "$SERVICE_FILE" || continue
+            SERVICE_NAME=$(basename "$SERVICE_FILE")
+            systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null || continue
+            PORT=${SERVICE_NAME#proxy-}
+            PORT=${PORT%.service}
+            ACTIVE_PORTS+=("$PORT")
+        done
+        if ((${#ACTIVE_PORTS[@]} > 0)); then
+            mapfile -t ACTIVE_PORTS < <(printf '%s\n' "${ACTIVE_PORTS[@]}" | sort -n)
+        fi
+
+        clear
+        show_banner
+        echo ""
+        box_top
+        box_line "${WHITE}${BOLD}SUPORTE MULTIPROTOCOLO HCR${NC}"
+        box_mid
+        if ((${#ACTIVE_PORTS[@]} == 0)); then
+            box_line "${YELLOW}Nenhuma porta Azpro ativa.${NC}"
+        else
+            for ((INDEX=0; INDEX<${#ACTIVE_PORTS[@]}; INDEX++)); do
+                PORT=${ACTIVE_PORTS[$INDEX]}
+                FLAG=$(hcr_flag_for_port "$PORT")
+                printf -v ACTION '%02d' "$((INDEX + 1))"
+                if [[ -f "$FLAG" ]]; then
+                    box_line "${WHITE}[${ACTION}]${NC} ${PORT} - ATIVAR HCR: ${GREEN}ON${NC}"
+                else
+                    box_line "${WHITE}[${ACTION}]${NC} ${PORT} - ATIVAR HCR: ${YELLOW}OFF${NC}"
+                fi
+            done
+        fi
+        box_mid
+        box_line "${WHITE}[00]${NC} - VOLTAR"
+        box_bottom
+        echo ""
+        read -r -p "Escolha a porta para alternar HCR (00 para voltar): " ACTION
+        [[ "$ACTION" == "00" || "$ACTION" == "0" || -z "$ACTION" ]] && return
+        if [[ "$ACTION" =~ ^[0-9]+$ ]] && ((10#$ACTION >= 1 && 10#$ACTION <= ${#ACTIVE_PORTS[@]})); then
+            PORT=${ACTIVE_PORTS[$((10#$ACTION - 1))]}
+            toggle_port_hcr "$PORT"
+        fi
+    done
+}
+
 manage_multiprotocol() {
     local ACTION SERVICE_FILE SERVICE_NAME PORT FLAG INDEX LANGUAGE
     local -a ACTIVE_PORTS=()
@@ -1095,11 +1200,17 @@ manage_multiprotocol() {
             done
         fi
         box_mid
+        box_line "${WHITE}[H]${NC} - ATIVAR SUPORTE AO HCR"
         box_line "${WHITE}[00]${NC} - $(language_text back "$LANGUAGE")"
         box_bottom
         echo ""
         read -r -p "$(language_text select_port "$LANGUAGE") " ACTION
         [[ "$ACTION" == "00" || "$ACTION" == "0" || -z "$ACTION" ]] && return
+
+        if [[ "$ACTION" == "h" || "$ACTION" == "H" ]]; then
+            manage_hcr_support
+            continue
+        fi
 
         if [[ "$ACTION" =~ ^[0-9]+$ ]] && ((10#$ACTION >= 1 && 10#$ACTION <= ${#ACTIVE_PORTS[@]})); then
             PORT=${ACTIVE_PORTS[$((10#$ACTION - 1))]}
@@ -1550,7 +1661,8 @@ uninstall_proxy() {
     remove_owned_link "/usr/local/bin/mpro-xhttp" "$LKPROXY_XHTTP"
     remove_owned_link "/usr/local/bin/mpro-integrated" "$LKPROXY_INTEGRATED"
     rm -f -- "${BYPASS_DIR}"/bypass-http-ssh-*.enabled \
-        "${BYPASS_DIR}"/multiprotocol-*.enabled
+        "${BYPASS_DIR}"/multiprotocol-*.enabled \
+        "${BYPASS_DIR}"/hcr-*.enabled
     if ! rm -f -- "$LKPROXY" "$LKPROXY_XHTTP" "$LKPROXY_INTEGRATED" \
         "/opt/mpro/proxy-websocket" "/opt/mpro/menu" "/opt/mpro/cert.pem" \
         "/opt/mpro/key.pem" "$LEGACY_MULTIPROTOCOL_FLAG" "${BYPASS_DIR}/hcr-server"; then

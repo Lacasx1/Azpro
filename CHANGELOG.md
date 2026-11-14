@@ -1,5 +1,12 @@
 # Mpro - Changelog
 
+## v3.9.1 - HCR por porta no multiprotocolo
+
+### Novo
+- O submenu da opção 7 aceita `H` para abrir o seletor de suporte HCR nas portas Azpro ativas, sem criar nem fechar portas.
+- O suporte HCR tem marcador independente por porta; ao ativar, o Azpro também habilita o dispatcher multiprotocolo nessa porta se ainda estiver desligado.
+- O dispatcher envia TLS ao handler HCR somente quando o marcador da porta está ativo; caso contrário, preserva o encaminhamento TLS legado.
+
 ## v3.9.0 - Manter sessões HCR ativas
 
 ### Corrigido

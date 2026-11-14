@@ -30,6 +30,7 @@ async fn main() -> Result<(), Error> {
     let use_quic = has_arg("-q");
     let bypass_enabled = bypass_enabled_for_port(port);
     let multiprotocol_enabled = multiprotocol_enabled_for_port(port);
+    let hcr_enabled = hcr_enabled_for_port(port);
     let ssh_only = has_arg("-ssh");
     let tls_enabled = has_arg("-t") || !has_arg("--no-tls");
     let quic_port = get_quic_port();
@@ -69,6 +70,7 @@ async fn main() -> Result<(), Error> {
         ssh_only,
         bypass_enabled,
         multiprotocol_enabled,
+        hcr_enabled,
         tls_enabled,
     )
     .await;
@@ -81,6 +83,7 @@ async fn start_http(
     ssh_only: bool,
     bypass_enabled: bool,
     multiprotocol_enabled: bool,
+    hcr_enabled: bool,
     tls_enabled: bool,
 ) {
     let status_arc = Arc::new(status);
@@ -97,6 +100,7 @@ async fn start_http(
                         ssh_only,
                         bypass_enabled,
                         multiprotocol_enabled,
+                        hcr_enabled,
                         tls_enabled,
                     )
                     .await;
@@ -116,10 +120,11 @@ async fn handle_client_protocol(
     ssh_only: bool,
     bypass_enabled: bool,
     multiprotocol_enabled: bool,
+    hcr_enabled: bool,
     tls_enabled: bool,
 ) -> Result<(), Error> {
     if multiprotocol_enabled {
-        return handle_multiprotocol_client(client_stream, status, ssh_only, tls_enabled).await;
+        return handle_multiprotocol_client(client_stream, status, ssh_only, hcr_enabled).await;
     }
 
     if tls_enabled && peek_tls_client_hello(&client_stream).await? {
@@ -138,7 +143,7 @@ async fn handle_multiprotocol_client(
     client_stream: TcpStream,
     status: &str,
     ssh_only: bool,
-    _tls_enabled: bool,
+    hcr_enabled: bool,
 ) -> Result<(), Error> {
     let detected = protocol::detect_from_stream(&client_stream).await?;
     println!("[MULTIPROTOCOLO] Detectado: {:?}", detected);
@@ -150,11 +155,12 @@ async fn handle_multiprotocol_client(
         Protocol::Socks5 => socks5::handle_socks5(client_stream)
             .await
             .map_err(|e| Error::new(ErrorKind::Other, format!("SOCKS5: {e}"))),
-        // Na opção 7, TLS identificado é HCR e não depende da flag antiga
-        // --no-tls usada quando a porta foi criada.
-        Protocol::Tls => tls::handle_hcr(client_stream)
+        Protocol::Tls if hcr_enabled => tls::handle_hcr(client_stream)
             .await
             .map_err(|e| Error::new(ErrorKind::Other, format!("HCR TLS: {e}"))),
+        Protocol::Tls => tls::handle_tls(client_stream)
+            .await
+            .map_err(|e| Error::new(ErrorKind::Other, format!("TLS passthrough: {e}"))),
         Protocol::WebSocket => websocket::handle_websocket(client_stream, status)
             .await
             .map_err(|e| Error::new(ErrorKind::Other, format!("WebSocket: {e}"))),
@@ -189,6 +195,14 @@ fn multiprotocol_enabled_in(port: u16, directory: &Path) -> bool {
     directory
         .join(format!("multiprotocol-{port}.enabled"))
         .is_file()
+}
+
+fn hcr_enabled_for_port(port: u16) -> bool {
+    hcr_enabled_in(port, Path::new(BYPASS_DIR))
+}
+
+fn hcr_enabled_in(port: u16, directory: &Path) -> bool {
+    directory.join(format!("hcr-{port}.enabled")).is_file()
 }
 
 /// BYPASS SSH_PROXY usa o mesmo handshake HTTP do AWProxy e força o backend SSH.
@@ -500,7 +514,7 @@ fn has_arg(arg: &str) -> bool {
 mod tests {
     use super::{
         bypass_enabled_in, find_http_header_end, http_handshake_followup, http_legacy_followup,
-        http_status_response, multiprotocol_enabled_in, strip_http_decoy_prefix,
+        hcr_enabled_in, http_status_response, multiprotocol_enabled_in, strip_http_decoy_prefix,
     };
     use std::path::Path;
 
@@ -516,7 +530,11 @@ mod tests {
 
         assert!(multiprotocol_enabled_in(80, &directory));
         assert!(!multiprotocol_enabled_in(443, &directory));
+        assert!(!hcr_enabled_in(80, &directory));
         assert!(!bypass_enabled_in(80, &directory));
+        std::fs::write(directory.join("hcr-80.enabled"), b"").unwrap();
+        assert!(hcr_enabled_in(80, &directory));
+        assert!(!hcr_enabled_in(443, &directory));
         std::fs::remove_dir_all(Path::new(&directory)).unwrap();
     }
 
